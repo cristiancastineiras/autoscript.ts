@@ -1,285 +1,191 @@
-# Autoscript.ts
+# AutoScript TS
 
-La idea de Autoscript.ts es modernizar y simplificar el código de autoscript.js
+[![CI](https://github.com/cristiancastineiras/autoscript.ts/actions/workflows/ci.yml/badge.svg)](https://github.com/cristiancastineiras/autoscript.ts/actions/workflows/ci.yml)
 
-Estamos en 2026 y autoscript js es un fichero con 6k lineas de codigo? ni gestion de versiones ni modularidad. Autoscript.ts busca resolver estos problemas ofreciendo un código más limpio, modular y fácil de mantener y TIPADO.
+`autoscript.js` es el script con el que una web pide firmas a [Autofirma](https://firmaelectronica.gob.es),
+la aplicación de firma electrónica del Gobierno de España. Este proyecto lo reescribe en
+TypeScript **manteniendo el mismo protocolo y la misma interfaz**, y añade un SDK moderno:
 
-Con este refactor, se busca que el código sea más mantenible, escalable y menos propenso a errores, aprovechando todas las ventajas que TypeScript ofrece sobre JavaScript.
+- **`autoscript.js` compatible**: sustituye al fichero original de la versión 1.10.1 sin cambiar
+  una línea de la página. Expone los mismos globals (`AutoScript`, `MiniApplet`, `SupportDialog`,
+  `Base64`) con los mismos 60 miembros, callbacks y diálogos.
+- **SDK tipado**: módulos ES con API de promesas, `AbortSignal`, errores tipados y
+  tree-shaking. Sin dependencias en tiempo de ejecución.
 
-No se intenta ni quiere despreciar o desmeritar el trabajo realizado en autoscript.js, sino más bien construir sobre él y mejorar la calidad del código para el futuro.
+La versión del paquete (`1.10.1`) coincide con la del script original al que sustituye.
 
-## Estudio de migración
+## Por qué
 
-El [estudio completo de refactor](Estudio/ESTUDIO-REFACTORIZACION.md) cubre el
-JavaScript original y el manual de integración: contratos, defectos confirmados,
-recortes de compatibilidad, módulos, TypeScript moderno, dependencias, seguridad,
-rendimiento, pruebas y fases de migración. La implementación TypeScript ya está
-en `src/`. El estudio conserva el estado histórico previo a la migración; las
-pruebas locales no certifican firma real, certificados, móvil ni servidores.
+|                                     | Original 1.10.1                                                                                                                                                | AutoScript TS                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Tamaño / gzip                       | 249 KB (sin minificar) / 54,8 KB                                                                                                                               | 72,9 KB (`autoscript.min.js`) / 24,0 KB                          |
+| Solo WebSocket con el SDK           | —                                                                                                                                                              | 6,6 KB gzip (tree-shaking)                                       |
+| Base64 de 256 KiB                   | 47 ms                                                                                                                                                          | 2 ms                                                             |
+| DES de 64 KiB (servidor intermedio) | 5,1 ms                                                                                                                                                         | 1,6 ms                                                           |
+| APIs obsoletas                      | XHR síncrono, `ActiveXObject`, `VBArray`, `MozWebSocket`, polyfills de IE, `navigator.platform`                                                                | Ninguna                                                          |
+| Errores conocidos                   | `getErrorType` roto en WebSocket, `ReferenceError` con `setServiceTimeout` en HTTPS, lote XML roto por servidor intermedio, UTF-8 incorrecto, XML sin escapar… | Corregidos (ver [migración](docs/MIGRACION.md))                  |
+| Pruebas                             | —                                                                                                                                                              | 143 pruebas, incluidas comparaciones automáticas con el original |
 
-## Librería modular
+Las cifras de rendimiento salen de `pnpm bench` (Node 24); las de tamaño, de `pnpm size`.
 
-Cliente TypeScript con operaciones Promise, estado por instancia, lotes
-independientes y tres transportes: WebSocket, HTTPS local y servidor intermedio.
-Incluye builds ESM/CommonJS, tipos, sourcemaps y compatibilidad optativa.
+## Uso como sustituto de `autoscript.js`
 
-La librería no ejecuta ni distribuye [Estudio/autoscript.js](Estudio/autoscript.js),
-no implementa el motor de firma y no accede a claves privadas. Importarla no
-abre conexiones ni registra globals. DES y la sanitización HTML son dependencias
-aisladas en las entradas de compatibilidad y UI.
+Descargue `autoscript.js` (o `autoscript.min.js`) de la
+[última release](https://github.com/cristiancastineiras/autoscript.ts/releases/latest) y sustituya
+el fichero actual. La página no necesita cambios:
 
-La arquitectura, los contratos y las diferencias intencionales están descritos
-en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
+```html
+<script src="js/autoscript.js"></script>
+<script>
+  AutoScript.cargarAppAfirma();
+  AutoScript.setServlets(
+    window.location.origin + "/afirma-signature-storage/StorageService",
+    window.location.origin + "/afirma-signature-retriever/RetrieveService",
+  );
 
-Versiones comprobadas el **14 de octubre de 2026**. Las versiones de 2027 todavía
-no están disponibles para verificarlas; esta base permite actualizar y comprobar
-el toolchain cuando se publiquen. Oxlint y Oxfmt usan las últimas versiones
-estables que superan la ventana de seguridad de 24 horas elegida para el proyecto.
-
-### Toolchain
-
-| Herramienta                   | Versión         | Función                                                    |
-| ----------------------------- | --------------- | ---------------------------------------------------------- |
-| tsdown                        | 0.23.1          | Build de librería con Rolldown y Oxc, escritos en Rust     |
-| TypeScript                    | 7.0.2           | Comprobación semántica de tipos                            |
-| Oxlint                        | 1.87.0          | Lint nativo con errores, sospechas y reglas de rendimiento |
-| Oxfmt                         | 0.72.0          | Formateo de código y configuración                         |
-| Vitest                        | 5.0.4           | Tests, workers, cobertura V8 y benchmarks                  |
-| pnpm                          | 12.11.2         | Instalación reproducible con versiones exactas y lockfile  |
-| Publint + Are the Types Wrong | 0.3.25 + 0.18.5 | Validación del paquete y de sus tipos                      |
-
-No necesitas instalar Rust ni Cargo: las herramientas usan sus binarios nativos
-precompilados. Rust acelera el build y el análisis, pero el resultado sigue siendo
-JavaScript; no garantiza por sí solo el rendimiento del código de firma.
-
-### Empezar
-
-Requisitos: Node **22.18.0+ de la rama 22**, **24.11.0+ de la rama 24** o **26+**,
-y pnpm **12.11.2**. Node 24 LTS es una opción adecuada para desarrollar.
-
-```sh
-pnpm install --frozen-lockfile
-pnpm check
-pnpm dev
+  function firmar() {
+    AutoScript.sign(
+      datosB64,
+      "SHA512withRSA",
+      "CAdES",
+      "mode=implicit",
+      (firma, certificado, datosExtra) => {
+        /* ... */
+      },
+      (tipo, mensaje, codigo) => {
+        /* ... */
+      },
+    );
+  }
+</script>
 ```
 
-Si tu instalación global de pnpm es anterior, puedes usar la versión fijada sin
-modificarla:
+Las páginas de prueba del repositorio oficial están en [`demo/`](demo/) y funcionan con este
+`autoscript.js` sin modificaciones.
+
+## Uso del SDK
 
 ```sh
-npm exec --yes --package=pnpm@12.11.2 -- pnpm install --frozen-lockfile
-npm exec --yes --package=pnpm@12.11.2 -- pnpm check
+npm install https://github.com/cristiancastineiras/autoscript.ts/releases/download/v1.10.1/autoscript-ts-1.10.1.tgz
 ```
 
-`pnpm dev` observa cambios y recompila la librería. No es un servidor web.
+```ts
+import { AutoFirmaError, createAutoFirmaClient } from "autoscript-ts";
+import { SupportDialog } from "autoscript-ts/ui"; // opcional: diálogos con el aspecto original
 
-### Comandos
+const client = createAutoFirmaClient({
+  appName: "Sede electrónica",
+  dialogs: new SupportDialog(),
+});
 
-| Comando              | Resultado                                                             |
-| -------------------- | --------------------------------------------------------------------- |
-| `pnpm build`         | Genera JavaScript, declaraciones y sourcemaps en `dist/`              |
-| `pnpm dev`           | Build en modo watch                                                   |
-| `pnpm typecheck`     | Comprueba tipos sin emitir archivos                                   |
-| `pnpm lint`          | Ejecuta Oxlint y rechaza también los avisos                           |
-| `pnpm lint:fix`      | Aplica correcciones de lint disponibles                               |
-| `pnpm format`        | Formatea los archivos de la plantilla                                 |
-| `pnpm format:check`  | Comprueba el formato sin modificar archivos                           |
-| `pnpm test`          | Ejecuta los tests unitarios                                           |
-| `pnpm test:watch`    | Ejecuta los tests en modo watch                                       |
-| `pnpm test:coverage` | Genera cobertura V8 con umbrales del 90 % por archivo                 |
-| `pnpm test:package`  | Prueba los exports ESM y CommonJS después del build                   |
-| `pnpm bench`         | Ejecuta los benchmarks de rendimiento                                 |
-| `pnpm check:package` | Valida los metadatos del paquete construido                           |
-| `pnpm check:types`   | Comprueba los tipos del paquete empaquetado                           |
-| `pnpm check`         | Ejecuta formato, lint, tipos, cobertura, build y validadores en orden |
-| `pnpm pack`          | Compila y genera el paquete local sin publicarlo                      |
+try {
+  const { signature, certificate } = await client.sign({
+    data: documentoBase64,
+    algorithm: "SHA512withRSA",
+    format: "PAdES",
+    extraParams: { signaturePages: 1, signaturePositionOnPageLowerLeftX: 50 },
+  });
+} catch (error) {
+  if (error instanceof AutoFirmaError) console.error(error.type, error.code, error.message);
+}
+```
 
-El comando de validación se detiene en el primer fallo. Los benchmarks quedan
-fuera de ese comando porque sus tiempos dependen de la máquina y de su carga.
+Otras operaciones:
 
-### Estructura
+```ts
+const certificado = await client.selectCertificate({ extraParams: "filters=nonexpired:" });
+
+// Lotes trifásicos (o locales con `local: true`)
+import { Batch } from "autoscript-ts";
+const lote = new Batch({ algorithm: "SHA256", format: "CAdES" })
+  .add({ id: "1", reference: referencia1 })
+  .add({ id: "2", reference: referencia2, format: "XAdES" });
+const { result } = await client.signBatch({
+  batch: lote,
+  stopOnError: true,
+  preSignerUrl: "https://sede.gob.es/afirma-server-triphase-signer/presign",
+  postSignerUrl: "https://sede.gob.es/afirma-server-triphase-signer/postsign",
+});
+
+// Dejar de esperar (no cancela una firma ya iniciada en Autofirma)
+const controller = new AbortController();
+client.sign({ algorithm: "SHA256", format: "CAdES", signal: controller.signal });
+controller.abort();
+```
+
+El canal se elige como en el original: servidor intermedio en Android/iOS (o con
+`forceIntermediate: true`), WebSocket en escritorio y HTTPS local si no hay WebSocket. Para
+cargar solo el canal que necesita, cree el cliente con su transporte:
+
+```ts
+import { AutoFirmaClient, WebSocketTransport } from "autoscript-ts";
+const client = new AutoFirmaClient({ transport: new WebSocketTransport() });
+```
+
+| Entrada                       | Contenido                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `autoscript-ts`               | Cliente, transportes, lotes, errores, codificación y utilidades              |
+| `autoscript-ts/ui`            | Diálogo de soporte, estilos y textos en seis idiomas                         |
+| `autoscript-ts/compat`        | Fachada `AutoScript` con callbacks (`createAutoScript`, `installAutoScript`) |
+| `autoscript-ts/autoscript.js` | Script clásico (IIFE) con sus tipos de globals                               |
+
+Importar el SDK no tiene efectos secundarios ni toca el DOM, así que es seguro en SSR.
+
+## Compatibilidad
+
+- **Protocolo**: idéntico al de `autoscript.js` 1.10.1 en los tres canales (WebSocket, HTTPS
+  local y servidor intermedio con cifrado AES/DES). Las pruebas de `tests/differential`
+  ejecutan el original y esta versión contra el mismo Autofirma simulado y comparan cada
+  mensaje.
+- **Navegadores**: los compatibles con ES2022 (Chrome y Edge 94+, Firefox 93+, Safari 15.4+).
+  Se ha retirado el soporte de Internet Explorer, EdgeHTML, Safari 10 y Firefox 60 o anterior.
+- **Diferencias intencionadas** respecto al original: están documentadas en
+  [docs/MIGRACION.md](docs/MIGRACION.md).
+
+## Desarrollo
+
+Requisitos: Node.js 24 (fijado con Volta) o 22.22+, y pnpm 12 (`corepack enable`).
+
+```sh
+pnpm install
+pnpm check        # formato, lint, tipos, pruebas con cobertura, build y validación del paquete
+pnpm demo         # sirve las páginas de prueba (HOST=0.0.0.0 para acceder por IP)
+pnpm bench        # rendimiento frente al original
+pnpm size         # tamaño de las distribuciones y del tree-shaking
+```
+
+Autofirma rechaza las páginas servidas desde `localhost` o `127.0.0.1`: para probar con
+Autofirma real use `HOST=0.0.0.0 pnpm demo` y abra la IP del equipo, o la
+[demo publicada](https://cristiancastineiras.github.io/autoscript.ts/).
+
+Estructura:
 
 ```text
 src/
-  index.ts             Entrada moderna, sin efectos secundarios
-  core/                Cliente, configuración, lotes, tipos y ciclo de operación
-  encoding/            Base64 de bytes y UTF-8 estricto
-  protocol/            Dialectos, Properties, XML y respuestas nativas
-  transports/          WebSocket, HTTPS, intermedio y cifrado wire
-  browser/             Lanzamiento, descargas y reloj asíncrono
-  compat/              Fachada de callbacks, globals y DES optativo
-  ui/                  Dialog, locales y estilos instalables explícitamente
-tests/
-  *.test.ts            Unitarias y contratos con sockets/fetch/DOM simulados
-  package.test.mjs     Imports ESM/CommonJS e inventario de la referencia
-bench/
-	config.bench.ts      Ejemplo de benchmark con Vitest 5
-scripts/
-	check.mjs            Validación multiplataforma
-Estudio/
-	autoscript.js        Referencia original, excluida del build y de los controles
+  core/         cliente, configuracion, errores, lotes y tipos
+  protocol/     URLs afirma://, parametros por canal, XML y respuestas
+  transports/   WebSocket, HTTPS local y servidor intermedio
+  crypto/       DES heredado y AES-256-CBC (WebCrypto)
+  encoding/     Base64 y UTF-8
+  browser/      entorno, deteccion de plataforma, hora y descargas
+  ui/           dialogo de soporte, estilos e idiomas
+  compat/       fachada AutoScript con callbacks
+  autoscript.ts entrada de dist/autoscript.js
+tests/          unitarias, diferenciales frente al original y del paquete compilado
+demo/           paginas de prueba del repositorio oficial
+Estudio/        autoscript.js original, manual del integrador y estudio de refactorizacion
 ```
 
-El build se define en [tsdown.config.ts](tsdown.config.ts), el contrato de
-distribución en [package.json](package.json) y el modo estricto en
-[tsconfig.json](tsconfig.json).
+Más detalle en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
-### Consumir la API
+### Versiones y releases
 
-API moderna en el navegador, invocada desde una acción del usuario:
+Los cambios se registran con [changesets](https://github.com/changesets/changesets):
+`pnpm changeset` en cada PR. Al llegar a `main`, el flujo de GitHub abre la PR
+«Version Packages»; al fusionarla se crea la etiqueta y la release con `autoscript.js`,
+`autoscript.min.js`, su source map y el tarball del paquete. La demo se publica en GitHub Pages.
 
-```ts
-import { AutoFirmaClient } from "autoscript-ts/core";
-import { WebSocketTransport } from "autoscript-ts/websocket";
+## Licencia
 
-const client = new AutoFirmaClient(new WebSocketTransport(), {
-  appName: "Mi aplicación",
-  timeoutMs: 120_000,
-});
-
-const result = await client.sign({
-  data: "SG9sYQ==",
-  algorithm: "SHA256withRSA",
-  format: "CAdES",
-  properties: { mode: "implicit" },
-});
-
-console.log(result.signature);
-client.dispose();
-```
-
-Para seleccionar automáticamente el transporte existe `createAutoFirmaClient`.
-En móvil o modo intermedio hay que proporcionar los servicios. No se cambia a
-otro transporte ni se reenvía una firma automáticamente después de un error.
-
-```js
-const { createAutoFirmaClient } = require("autoscript-ts");
-
-const client = createAutoFirmaClient({
-  transport: "intermediate",
-  intermediate: {
-    storageUrl: "https://firma.example/StorageService",
-    retrieveUrl: "https://firma.example/RetrieveService",
-  },
-});
-```
-
-Entradas públicas: `autoscript-ts`, `/core`, `/encoding`, `/browser`,
-`/websocket`, `/https`, `/intermediate`, `/compat`, `/compat/des` y `/ui`.
-Todas pueden importarse sin DOM, pero las operaciones nativas requieren un
-navegador con Autofirma instalado y los permisos, TLS y CSP adecuados.
-
-Compatibilidad de callbacks sin globals:
-
-```ts
-import { createLegacyAutoScript } from "autoscript-ts/compat";
-
-const AutoScript = createLegacyAutoScript();
-AutoScript.cargarAppAfirma();
-AutoScript.sign("SG9sYQ==", "SHA256withRSA", "CAdES", "mode=implicit", onSuccess, onError);
-```
-
-`installGlobals()` registra explícitamente AutoScript, MiniApplet, SupportDialog
-y Base64, y devuelve `dispose()` para retirarlos y restaurar los anteriores.
-No sobrescribe globals existentes salvo con `overwrite: true`. Cipher y los
-polyfills de IE no se registran. La fachada conserva 60 claves y las aridades
-históricas; `await AutoScript.checkTime(...)` es una ruptura documentada.
-
-La UI incluye el catálogo de 25 mensajes de `autoscript.js` para `es_ES`,
-`gl_ES`, `va_ES`, `ca_ES`, `eu_ES` y `en_US`. `AutoScript.setLocale(...)`
-actualiza el diálogo y el siguiente `checkTime`; un código desconocido vuelve a
-`es_ES`. Los enlaces de Google Play, App Store y el portal de escritorio se
-renderizan como enlaces HTTPS accesibles, no como HTML de badges con imágenes.
-Los setters de HTML legacy siguen admitidos, pero el contenido se sanitiza.
-
-DES requiere consentimiento explícito del integrador:
-
-```ts
-import { createLegacyDesCipher } from "autoscript-ts/compat/des";
-
-const client = createAutoFirmaClient({
-  transport: "intermediate",
-  intermediate: {
-    storageUrl: "https://firma.example/StorageService",
-    retrieveUrl: "https://firma.example/RetrieveService",
-    legacyCipher: createLegacyDesCipher,
-  },
-});
-```
-
-La primera subida larga del protocolo antiguo usa DES hasta negociar AES.
-Sin ese consentimiento se rechaza antes del lanzamiento. No se sustituye
-AES-CBC por AES-GCM, ni se promete integridad que el protocolo no proporciona.
-
-`timeoutMs` es el plazo de espera del cliente; `serviceTimeoutMs` se envía al
-nativo y no es un timeout HTTP. `cancel()`, AbortSignal y `dispose()` detienen
-la espera local y liberan recursos; no cancelan una firma ya abierta en Autofirma.
-El helper de plantilla `defineConfig` sigue disponible para consumidores previos;
-la configuración operativa es `defineClientConfig` o la del constructor.
-
-### Añadir módulos
-
-1. Crea una carpeta bajo `src/` con implementación y un `index.ts` que exporte
-   únicamente su API pública. Usa exports nombrados y `export type` para tipos.
-2. Añade una entrada explícita al mapa `entry` de
-   [tsdown.config.ts](tsdown.config.ts). No conviertas todos los archivos internos
-   en entrypoints mediante un glob general.
-3. Añade el subpath a `exports` en [package.json](package.json), siguiendo el
-   ejemplo de `./core`: JavaScript y tipos separados para `import` y `require`.
-   Añade también el fallback correspondiente en `typesVersions`.
-4. Exporta el módulo desde [src/index.ts](src/index.ts) solo si debe estar
-   disponible en la entrada general. Añade sus tests y un benchmark cuando
-   exista una ruta de ejecución cuyo rendimiento importe.
-5. Ejecuta `pnpm check` antes de integrar el módulo.
-
-Empieza con módulos de dominio en un único paquete. Separa transporte, protocolo
-y adaptadores de entorno cuando migres código real; evita dependencias de DOM o
-Node en el núcleo. No inicialices conexiones, listeners ni estado global al
-importar un módulo. Cuando necesites paquetes con versiones o consumidores
-independientes, puedes incorporarlos al workspace en
-[pnpm-workspace.yaml](pnpm-workspace.yaml).
-
-### Decisiones de rendimiento
-
-- `isolatedDeclarations` habilita la emisión rápida de declaraciones con Oxc.
-  Los símbolos públicos necesitan tipos explícitos; el typecheck verifica su
-  corrección por separado, porque transpilar no equivale a comprobar tipos.
-- `sideEffects: false`, tree-shaking y subpaths permiten eliminar código no
-  utilizado. Si añades inicializaciones al importar, declara esos archivos como
-  efectos secundarios en vez de mantener una afirmación incorrecta.
-- El target ES2022 conserva sintaxis moderna y la plataforma neutral evita
-  acoplar el núcleo a Node. No se añaden polyfills automáticamente.
-- No se minifica por defecto: la aplicación consumidora puede eliminar código y
-  minificar una sola vez. Una distribución directa para navegador puede tener
-  una configuración de build específica cuando sea necesaria.
-- Los sourcemaps de JavaScript y declaraciones conservan navegación y depuración.
-  El paquete incluye `src/` para que las referencias de los mapas sean válidas.
-- Los tests usan workers, pero conservan el aislamiento entre archivos. Compara
-  cambios con cargas representativas: el benchmark de configuración es solo un
-  ejemplo, no una medida del rendimiento de Autofirma.
-
-### CI, actualizaciones y publicación
-
-[.github/workflows/ci.yml](.github/workflows/ci.yml) ejecuta el mismo `pnpm check`
-en Linux con Node 22.18.0, 24 y 26, y en Windows con Node 24. Instala con
-`--frozen-lockfile` y conserva los informes de cobertura.
-
-[.github/dependabot.yml](.github/dependabot.yml) prepara actualizaciones semanales
-de dependencias y GitHub Actions. Para actualizar manualmente:
-
-```sh
-pnpm update --latest
-pnpm check
-pnpm bench
-```
-
-Las versiones directas y el lockfile quedan fijados. La política de
-[pnpm-workspace.yaml](pnpm-workspace.yaml) exige 24 horas desde la publicación de
-las dependencias, incluidas las transitivas, y no contiene excepciones. Revisa
-los cambios de API y los requisitos de Node al actualizar versiones mayores.
-
-La plantilla tiene `private: true` y `UNLICENSED` para impedir una publicación
-accidental o atribuir una licencia no acordada. Antes de publicar, elige un
-nombre disponible, define la licencia compatible con el código que migres,
-actualiza la versión y retira `private`. El hook `prepublishOnly` ejecuta la
-validación completa; no se ha publicado ningún paquete con esta plantilla.
+Como obra derivada del Cliente @firma, se distribuye bajo **GPL-2.0-or-later** o **EUPL-1.1**, a
+elección de quien la use. Ver [LICENSE](LICENSE).
