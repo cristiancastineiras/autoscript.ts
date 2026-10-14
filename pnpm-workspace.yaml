@@ -1,0 +1,7 @@
+packages: []
+
+saveExact: true
+strictPeerDependencies: true
+engineStrict: true
+
+minimumReleaseAge: 1440
