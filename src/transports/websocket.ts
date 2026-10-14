@@ -1,189 +1,219 @@
-import { AutoFirmaError } from "../core/errors.js";
-import { deadline, delay } from "../core/lifecycle.js";
-import type { OperationContext, OperationRequest, Transport } from "../core/types.js";
-import { buildOperationUrl, operationParameters } from "../protocol/request.js";
-import { launchNative } from "../browser/launch.js";
-import { localLaunch, localPorts, randomSession, type LocalTransportOptions } from "./session.js";
+import { sleep, type Environment, type WebSocketLike } from "../browser/environment.js";
+import { AutoFirmaError, ERRORS, EXCEPTION } from "../core/errors.js";
+import type { NativeResult, WireOperation } from "../protocol/operation.js";
+import { launchUrl, websocketUrl } from "../protocol/requests.js";
+import { parseLocalResponse, WEBSOCKET_CODES } from "../protocol/responses.js";
+import { newSessionId, randomPorts } from "../protocol/session.js";
+import type { OperationContext, Transport } from "./transport.js";
 
-export interface Socket extends EventTarget {
-  readonly readyState: number;
-  send(data: string): void;
-  close(): void;
-}
-export interface WebSocketOptions extends LocalTransportOptions {
-  readonly createSocket?: (url: string) => Socket;
-}
+const CONNECTING = 0;
+const OPEN = 1;
+/** Espera tras arrancar Autofirma antes del primer intento de conexion. */
+const INITIAL_WAIT = 3000;
+/** Espera entre consultas `getresult` cuando Autofirma responde `#wait`. */
+const GETRESULT_WAIT = 2000;
 
-function exchange(
-  socket: Socket,
-  message: string,
-  signal: AbortSignal,
-  limit: number,
-): Promise<string> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const cleanup = (): void => {
-      socket.removeEventListener("message", receive);
-      socket.removeEventListener("error", fail);
-      socket.removeEventListener("close", fail);
-      signal.removeEventListener("abort", abort);
-    };
-    const receive = (event: Event): void => {
-      cleanup();
-      const value: unknown = (event as MessageEvent<unknown>).data;
-      if (typeof value !== "string" || value.length > limit)
-        reject(new AutoFirmaError("protocol", "Invalid or oversized WebSocket message."));
-      else resolve(value);
-    };
-    const fail = (): void => {
-      cleanup();
-      reject(new AutoFirmaError("network", "Local WebSocket disconnected.", "AS420002"));
-    };
-    const abort = (): void => {
-      cleanup();
-      reject(signal.reason);
-    };
-    socket.addEventListener("message", receive);
-    socket.addEventListener("error", fail);
-    socket.addEventListener("close", fail);
-    signal.addEventListener("abort", abort, { once: true });
-    try {
-      socket.send(message);
-    } catch (error) {
-      cleanup();
-      reject(error);
-    }
-  });
+interface PendingMessage {
+  resolve(data: string): void;
+  reject(error: unknown): void;
 }
 
-function opened(socket: Socket, signal: AbortSignal): Promise<void> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const cleanup = (): void => {
-      socket.removeEventListener("open", open);
-      socket.removeEventListener("error", fail);
-      socket.removeEventListener("close", fail);
-      signal.removeEventListener("abort", abort);
-    };
-    const open = (): void => {
-      cleanup();
-      resolve();
-    };
-    const fail = (): void => {
-      cleanup();
-      reject(new AutoFirmaError("network", "Local socket unavailable."));
-    };
-    const abort = (): void => {
-      cleanup();
-      reject(signal.reason);
-    };
-    socket.addEventListener("open", open);
-    socket.addEventListener("error", fail);
-    socket.addEventListener("close", fail);
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
+/**
+ * Comunicacion con Autofirma por WebSocket seguro local (`wss://127.0.0.1`). Es el canal por
+ * defecto en escritorio: se arranca la aplicacion una vez y el socket se reutiliza para las
+ * operaciones siguientes.
+ */
 export class WebSocketTransport implements Transport {
   readonly kind = "websocket" as const;
-  readonly #options: WebSocketOptions;
-  #socket: Socket | null = null;
+  #socket: WebSocketLike | null = null;
   #session: string | null = null;
-  #disposed: boolean = false;
-  #busy: boolean = false;
-  #active: AbortController | null = null;
+  #pending: PendingMessage | null = null;
+  #disposed = false;
 
-  constructor(options: WebSocketOptions = {}) {
-    this.#options = { ...options, ...(options.ports ? { ports: localPorts(options.ports) } : {}) };
-  }
-
-  async #connect(context: OperationContext): Promise<Socket> {
-    const ports = localPorts(this.#options.ports);
-    this.#session ??= randomSession();
-    (this.#options.launch ?? launchNative)(
-      localLaunch("websocket", ports, this.#session, context.config.progressDialog),
-    );
-    await delay(this.#options.launchDelayMs ?? 3000, context.signal);
-    for (let attempt = 0; attempt < (this.#options.retries ?? 15); attempt += 1) {
-      const candidates: Socket[] = [];
-      const scope = deadline(this.#options.probeTimeoutMs ?? 2000, context.signal);
-      try {
-        const winner = await Promise.any(
-          ports.map(async (port) => {
-            const socket = (
-              this.#options.createSocket ?? ((url: string): Socket => new WebSocket(url))
-            )(`wss://127.0.0.1:${port}`);
-            candidates.push(socket);
-            await opened(socket, scope.signal);
-            await exchange(
-              socket,
-              `echo=-idsession=${this.#session}@EOF`,
-              scope.signal,
-              context.config.maxResponseLength,
-            );
-            scope.signal.throwIfAborted();
-            return socket;
-          }),
-        );
-        context.signal.throwIfAborted();
-        this.#socket = winner;
-        return winner;
-      } catch {
-        context.signal.throwIfAborted();
-      } finally {
-        scope.dispose();
-        for (const socket of candidates) if (socket !== this.#socket) socket.close();
-      }
-      await delay(this.#options.retryDelayMs ?? 2000, context.signal);
-    }
-    throw new AutoFirmaError("network", "Unable to connect to AutoFirma.");
-  }
-
-  async execute(request: OperationRequest, context: OperationContext): Promise<string> {
-    if (this.#disposed) throw new AutoFirmaError("disposed", "Transport is disposed.");
-    if (this.#busy) throw new AutoFirmaError("busy", "Transport is busy.");
-    const operation = operationParameters(request, context, "websocket");
-    this.#active = new AbortController();
-    context = { ...context, signal: AbortSignal.any([context.signal, this.#active.signal]) };
-    this.#busy = true;
+  async execute(operation: WireOperation, context: OperationContext): Promise<NativeResult> {
+    if (this.#disposed) throw disposedError();
+    const { env, signal, dialogs } = context;
+    const session = (this.#session ??= newSessionId(env.crypto));
+    const url = websocketUrl(operation, context.settings, session, env.location?.hostname ?? null);
     try {
-      const socket = this.#socket?.readyState === 1 ? this.#socket : await this.#connect(context);
-      const parameters = [...operation, ["idsession", this.#session!] as const];
-      let response = await exchange(
-        socket,
-        buildOperationUrl(
-          request.operation,
-          parameters,
-          context.config.minimumVersion,
-          "websocket",
-        ),
-        context.signal,
-        context.config.maxResponseLength,
-      );
-      while (response === "#wait") {
-        await delay(2000, context.signal);
-        response = await exchange(
-          socket,
-          `getresult?idsession=${this.#session}`,
-          context.signal,
-          context.config.maxResponseLength,
-        );
+      const socket =
+        this.#socket?.readyState === OPEN ? this.#socket : await this.#connect(context, session);
+      await this.#send(socket, `echo=-idsession=${session}@EOF`, signal);
+      dialogs?.close();
+      let data = await this.#send(socket, url, signal);
+      while (data === "#wait") {
+        await sleep(env, GETRESULT_WAIT, signal);
+        data = await this.#send(socket, `getresult?idsession=${session}`, signal);
       }
-      return response;
+      return parseLocalResponse(operation, data, WEBSOCKET_CODES);
     } catch (error) {
-      this.#socket?.close();
-      this.#socket = null;
+      // Un abort local deja a Autofirma trabajando: no se reutiliza el socket para no mezclar
+      // su respuesta tardia con la siguiente operacion.
+      if (signal.aborted) this.#drop();
       throw error;
-    } finally {
-      this.#busy = false;
-      this.#active = null;
     }
   }
 
   dispose(): void {
     this.#disposed = true;
-    this.#active?.abort(new AutoFirmaError("disposed", "Transport is disposed."));
-    this.#socket?.close();
-    this.#socket = null;
+    this.#pending?.reject(disposedError());
+    this.#drop();
   }
+
+  #drop(): void {
+    const socket = this.#socket;
+    this.#socket = null;
+    this.#pending = null;
+    socket?.close();
+  }
+
+  #send(socket: WebSocketLike, message: string, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      const abort = (): void => {
+        this.#pending = null;
+        reject(signal.reason);
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      this.#pending = {
+        resolve(data) {
+          signal.removeEventListener("abort", abort);
+          resolve(data);
+        },
+        reject(error) {
+          signal.removeEventListener("abort", abort);
+          reject(error);
+        },
+      };
+      try {
+        socket.send(message);
+      } catch (cause) {
+        this.#pending = null;
+        signal.removeEventListener("abort", abort);
+        reject(closedError(cause));
+      }
+    });
+  }
+
+  #adopt(socket: WebSocketLike): WebSocketLike {
+    this.#socket = socket;
+    socket.addEventListener("message", (event) => {
+      if (socket !== this.#socket) return;
+      const pending = this.#pending;
+      this.#pending = null;
+      pending?.resolve(typeof event.data === "string" ? event.data : String(event.data));
+    });
+    socket.addEventListener("close", () => {
+      if (socket !== this.#socket) return;
+      this.#socket = null;
+      const pending = this.#pending;
+      this.#pending = null;
+      pending?.reject(closedError());
+    });
+    return socket;
+  }
+
+  async #connect(context: OperationContext, session: string): Promise<WebSocketLike> {
+    const { env, settings, signal, dialogs } = context;
+    this.#drop();
+    dialogs?.showLoading();
+    const ports = randomPorts(env.crypto, settings.portRange);
+    try {
+      env.launch(launchUrl("websocket", ports, session, settings.progressDialog));
+    } catch (cause) {
+      dialogs?.close();
+      throw AutoFirmaError.from(EXCEPTION.IO, ERRORS.WEBSOCKET_INVOICE_APP, {
+        cause,
+        dialog: "connecting-afirma",
+      });
+    }
+    await sleep(env, INITIAL_WAIT, signal);
+    const candidates = new Map<number, WebSocketLike>();
+    let winner: WebSocketLike | null = null;
+    try {
+      winner = await waitForSocket(
+        env,
+        ports,
+        candidates,
+        settings.connectionRetries,
+        settings.launchingTime,
+        signal,
+      );
+    } finally {
+      for (const socket of candidates.values()) if (socket !== winner) socket.close();
+    }
+    if (winner) return this.#adopt(winner);
+    dialogs?.close();
+    throw AutoFirmaError.from(EXCEPTION.APP_NOT_FOUND, ERRORS.WEBSOCKET_INVOICE_APP, {
+      dialog: "connecting-afirma",
+    });
+  }
+}
+
+/**
+ * Intenta abrir un socket en alguno de los puertos durante `retries` rondas. Los sockets que
+ * siguen conectando se conservan entre rondas (por ejemplo, mientras el navegador pide permiso
+ * de acceso a la red local) y solo se recrean los cerrados.
+ */
+function waitForSocket(
+  env: Environment,
+  ports: readonly number[],
+  candidates: Map<number, WebSocketLike>,
+  retries: number,
+  launchingTime: number,
+  signal: AbortSignal,
+): Promise<WebSocketLike | null> {
+  return new Promise((resolve, reject) => {
+    let round = 0;
+    let handle: unknown;
+    const finish = (socket: WebSocketLike | null): void => {
+      env.clearTimeout(handle);
+      signal.removeEventListener("abort", abort);
+      resolve(socket);
+    };
+    const abort = (): void => {
+      env.clearTimeout(handle);
+      reject(signal.reason);
+    };
+    const attempt = (): void => {
+      if (round >= retries) {
+        finish(null);
+        return;
+      }
+      round += 1;
+      for (const port of ports) {
+        const current = candidates.get(port);
+        if (current && current.readyState === OPEN) {
+          finish(current);
+          return;
+        }
+        if (current && current.readyState === CONNECTING) continue;
+        let socket: WebSocketLike;
+        try {
+          socket = env.createWebSocket(`wss://127.0.0.1:${port}`);
+        } catch {
+          continue;
+        }
+        candidates.set(port, socket);
+        socket.addEventListener("open", () => {
+          if (candidates.get(port) === socket && !signal.aborted) finish(socket);
+        });
+      }
+      handle = env.setTimeout(attempt, launchingTime);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    attempt();
+  });
+}
+
+function closedError(cause?: unknown): AutoFirmaError {
+  return AutoFirmaError.from(
+    EXCEPTION.INTERRUPTED,
+    ERRORS.WEBSOCKET_CLOSE,
+    cause === undefined ? {} : { cause },
+  );
+}
+
+function disposedError(): AutoFirmaError {
+  return new AutoFirmaError(EXCEPTION.ILLEGAL_STATE, "El cliente de Autofirma se ha liberado");
 }

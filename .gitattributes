@@ -1,0 +1,3 @@
+# Saltos de linea LF en el repositorio y en la copia de trabajo.
+* text=auto eol=lf
+*.png binary
