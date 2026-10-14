@@ -1,0 +1,28 @@
+AutoScript TypeScript
+=====================
+
+Reimplementacion en TypeScript de autoscript.js, el script de integracion web del
+Cliente @firma / Autofirma del Gobierno de Espana
+(https://github.com/ctt-gob-es/clienteafirma).
+
+Como obra derivada, se distribuye bajo las mismas licencias que el original, a
+eleccion de quien la utilice:
+
+  - GNU General Public License, version 2 o posterior (GPL-2.0-or-later).
+    Texto completo: LICENSES/GPL-2.0-or-later.txt
+
+  - European Union Public Licence, version 1.1 (EUPL-1.1).
+    Texto completo: LICENSES/EUPL-1.1.txt
+
+Identificador SPDX: GPL-2.0-or-later OR EUPL-1.1
+
+Componentes de terceros
+-----------------------
+
+src/crypto/des.ts adapta el algoritmo DES de tablas SP de Paul Tero (2001,
+http://www.tero.co.uk/des/), optimizado por Michael Hayworth (2001), que el
+autoscript.js original incluia como `Cipher.des`. Se conserva su aviso de
+exencion de responsabilidad en la cabecera del fichero.
+
+Los textos de los dialogos y el logotipo de Autofirma proceden del autoscript.js
+original.
