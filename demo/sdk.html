@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <title>Ejemplo del SDK moderno de AutoScript</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="module">
+      import { AutoFirmaError, createAutoFirmaClient, textToBase64 } from "./js/index.js";
+      import { SupportDialog } from "./js/ui.js";
+
+      // Mismo dialogo de soporte que autoscript.js, opcional en el SDK.
+      const client = createAutoFirmaClient({ dialogs: new SupportDialog() });
+      let controller = null;
+
+      const $ = (id) => document.getElementById(id);
+      const log = (text) => ($("console").value += "\n" + text);
+
+      async function run(operation) {
+        controller = new AbortController();
+        try {
+          await operation(controller.signal);
+        } catch (error) {
+          if (error instanceof AutoFirmaError)
+            log("Type: " + error.type + "\nMessage: " + error.message + "\nCodigo: " + (error.code ?? ""));
+          else log("Error: " + error);
+        } finally {
+          controller = null;
+        }
+      }
+
+      $("sign").addEventListener("click", () =>
+        run(async (signal) => {
+          const result = await client.sign({
+            data: $("data").value ? textToBase64($("data").value) : null,
+            algorithm: $("algorithm").value,
+            format: $("format").value,
+            extraParams: $("params").value,
+            signal,
+          });
+          log("Firma OK");
+          $("result").value = result.signature;
+        }),
+      );
+
+      $("select").addEventListener("click", () =>
+        run(async (signal) => {
+          $("result").value = await client.selectCertificate({ extraParams: $("params").value, signal });
+          log("Certificado seleccionado");
+        }),
+      );
+
+      $("cancel").addEventListener("click", () => controller?.abort());
+      $("transport").textContent = client.transport;
+    </script>
+  </head>
+  <body>
+    <p>Canal de comunicaci&oacute;n: <b id="transport"></b></p>
+
+    <fieldset><legend>Configuraci&oacute;n de la firma</legend>
+    <div>
+     <label for="data">Texto a firmar (vac&iacute;o: Autofirma pide un fichero)</label><br>
+     <textarea id="data" cols="50" rows="3"></textarea>
+    </div>
+    <div>
+     <label for="format">Formato</label>
+     <select id="format">
+      <option value="CAdES" selected>CAdES</option>
+      <option value="XAdES">XAdES</option>
+      <option value="PAdES">PAdES</option>
+     </select>
+     <label for="algorithm">Algoritmo</label>
+     <select id="algorithm">
+      <option value="SHA256">SHA256</option>
+      <option value="SHA512withRSA" selected>SHA512</option>
+     </select>
+    </div>
+    <div>
+     <label for="params">ExtraParams</label><br>
+     <textarea id="params" cols="50" rows="3">mode=implicit</textarea>
+    </div>
+    </fieldset>
+    <br/>
+
+    <input type="button" id="sign" value="Firmar">&nbsp;
+    <input type="button" id="select" value="Seleccionar certificado">&nbsp;
+    <input type="button" id="cancel" value="Dejar de esperar">
+    <br/>
+    <br/>
+
+    <div>
+     <span>Consola</span>
+     <br>
+     <textarea id="console" cols="150" rows="10"></textarea>
+    </div>
+
+    <div>
+     <span>Resultado</span>
+     <br>
+     <textarea id="result" cols="150" rows="10"></textarea>
+    </div>
+  </body>
+</html>
