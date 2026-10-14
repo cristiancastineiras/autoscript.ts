@@ -1,6 +1,10 @@
 name: CI
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +23,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            node: "22.18.0"
+            node: "22"
           - os: ubuntu-latest
             node: "24"
           - os: ubuntu-latest
@@ -36,15 +40,22 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - name: Install dependencies
+      - name: Instalar dependencias
         run: pnpm install --frozen-lockfile
-      - name: Validate library
+      - name: Formato, lint, tipos, pruebas, build y paquete
         run: pnpm check
-      - name: Upload coverage
-        if: always()
+      - name: Cobertura
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.node == '24'
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: coverage-${{ matrix.os }}-node-${{ matrix.node }}
+          name: coverage
           path: coverage/
           if-no-files-found: ignore
+          retention-days: 7
+      - name: Distribucion
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: autoscript
+          path: dist/
           retention-days: 7
