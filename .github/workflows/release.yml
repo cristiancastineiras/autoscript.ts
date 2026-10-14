@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # Con changesets pendientes, abre o actualiza la PR "Version Packages".
+      - name: Versionado con changesets
+        id: changesets
+        uses: changesets/action@v2.1.2
+        with:
+          version-script: pnpm run version
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+
+      # Sin changesets pendientes, publica la release de la version actual si aun no existe.
+      - name: Comprobar y construir
+        if: steps.changesets.outputs.has-changesets == 'false'
+        run: pnpm check
+      - name: Publicar release
+        if: steps.changesets.outputs.has-changesets == 'false'
+        run: node scripts/release.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
