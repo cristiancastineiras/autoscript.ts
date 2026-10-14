@@ -1,222 +1,246 @@
-import { AutoFirmaError, checkNativeError, normalizeError } from "../core/errors.js";
-import { delay } from "../core/lifecycle.js";
-import type { OperationContext, OperationRequest, Transport } from "../core/types.js";
+import { isMobile, sleep } from "../browser/environment.js";
+import { AutoFirmaError, ERRORS, EXCEPTION } from "../core/errors.js";
 import {
-  buildOperationUrl,
-  buildXml,
-  operationParameters,
-  serializeProperties,
-  type Parameter,
-} from "../protocol/request.js";
-import { encodeUtf8 } from "../encoding/index.js";
-import { detectMobile, launchNative } from "../browser/launch.js";
-import { postText } from "../browser/network.js";
-import { randomSession } from "./session.js";
-import { createWireCipher, type LegacyCipher, type WireCipher } from "./wire-crypto.js";
+  aesCipher,
+  aesDecipherFields,
+  createAesConfig,
+  desCipher,
+  desDecipherFields,
+  encodeCipherConfig,
+  isDesField,
+  type CipherConfig,
+} from "../crypto/wire.js";
+import { toBase64UrlSafe } from "../encoding/base64.js";
+import { encodeUtf8 } from "../encoding/utf8.js";
+import type { NativeResult, WireOperation } from "../protocol/operation.js";
+import {
+  appName,
+  intermediateOperationParams,
+  intermediateParams,
+  intermediateUrl,
+  intermediateXml,
+  operationName,
+  type Param,
+} from "../protocol/requests.js";
+import {
+  parseIntermediateFields,
+  throwIfNativeError,
+  WEBSOCKET_CODES,
+} from "../protocol/responses.js";
+import { newDesKey, newSessionId } from "../protocol/session.js";
+import { resolveServlets } from "./servlets.js";
+import type { OperationContext, Transport } from "./transport.js";
 
-export interface IntermediateOptions {
-  readonly storageUrl: string;
-  readonly retrieveUrl: string;
-  readonly launch?: (url: string) => void;
-  readonly fetch?: typeof fetch;
-  readonly mobile?: boolean;
-  readonly androidIntent?: boolean;
-  readonly pollDelayMs?: number;
-  readonly maxPolls?: number;
-  readonly maxUrlLength?: number;
-  readonly legacyCipher?: () => LegacyCipher;
-  readonly forceLegacyCipher?: boolean;
-  readonly allowInsecureServices?: boolean;
-  readonly createCipher?: () => Promise<WireCipher>;
-}
+/** Longitud maxima de la URL de invocacion; por encima, los datos se suben al servidor. */
+const MAX_URL_LENGTH = 2000;
+const FORM = { "Content-Type": "application/x-www-form-urlencoded" } as const;
 
+/**
+ * Comunicacion con Autofirma mediante un servidor intermedio: la pagina invoca la aplicacion
+ * por protocolo y recoge el resultado del RetrieveService. Es el canal de Autofirma App en
+ * Android e iOS y el modo forzado con `setForceWSMode(true)`.
+ */
 export class IntermediateTransport implements Transport {
   readonly kind = "intermediate" as const;
-  readonly #options: IntermediateOptions;
-  #advancedSupported: boolean = false;
-  #certificate: string | null = null;
-  #disposed: boolean = false;
-  #busy: boolean = false;
-  #active: AbortController | null = null;
+  /** Autofirma ya ha demostrado soportar AES: las subidas siguientes se cifran con AES. */
+  #advancedCipher = false;
+  /** Certificado fijado cuando `stickySignatory` esta activo en escritorio. */
+  #stickyCertificate: string | null = null;
+  #disposed = false;
 
-  constructor(options: IntermediateOptions) {
-    for (const value of [options.storageUrl, options.retrieveUrl]) {
-      const url = new URL(value);
-      if (
-        url.username ||
-        url.password ||
-        (url.protocol !== "https:" && !(options.allowInsecureServices && url.protocol === "http:"))
-      )
-        throw new TypeError("Servlets require HTTPS without embedded credentials.");
-    }
-    for (const value of [options.maxPolls ?? 15, options.maxUrlLength ?? 2000])
-      if (!Number.isSafeInteger(value) || value < 1)
-        throw new RangeError("Invalid intermediate limits.");
-    this.#options = { ...options };
-  }
-
-  async execute(request: OperationRequest, context: OperationContext): Promise<string> {
-    if (this.#disposed) throw new AutoFirmaError("disposed", "Transport is disposed.");
-    if (this.#busy) throw new AutoFirmaError("busy", "Transport is busy.");
-    if (request.operation === "load")
-      throw new AutoFirmaError(
-        "unsupported",
-        "Native file loading is unavailable through intermediate services.",
+  async execute(operation: WireOperation, context: OperationContext): Promise<NativeResult> {
+    if (this.#disposed)
+      throw new AutoFirmaError(EXCEPTION.ILLEGAL_STATE, "El cliente de Autofirma se ha liberado");
+    const { env, settings, dialogs } = context;
+    if (operation.kind === "load")
+      throw AutoFirmaError.from(
+        EXCEPTION.UNSUPPORTED,
+        operation.multiple ? ERRORS.UPLOAD_MULTIPLE_FILE_SERVER : ERRORS.UPLOAD_FILE_SERVER,
       );
-    const mobile = this.#options.mobile ?? detectMobile();
-    if (mobile && request.operation === "batch" && request.local)
-      throw new AutoFirmaError("unsupported", "Local batches are unavailable on mobile.");
-    if (mobile && "data" in request && !request.data)
-      throw new AutoFirmaError("unsupported", "Mobile signing requires document data.");
-    context.signal.throwIfAborted();
-    this.#active = new AbortController();
-    context = { ...context, signal: AbortSignal.any([context.signal, this.#active.signal]) };
-    this.#busy = true;
-    let cipher: WireCipher | null = null;
+    const servlets = resolveServlets(settings.servlets, env.location);
+    const mobile = isMobile(env.platform);
+    const subtle = env.crypto.subtle as SubtleCrypto | undefined;
+    const desKey = newDesKey(env.crypto);
+    let config: CipherConfig = { legDes: desKey };
+    if (subtle) config = createAesConfig(env.crypto, desKey);
+    else if (env.location?.protocol !== "https:") await dialogs?.showInsecureContextWarning();
+
+    const id = newSessionId(env.crypto);
+    const name = operationName(operation);
+    const intent = env.platform.chrome && env.platform.android;
+    const params = intermediateParams(
+      operation,
+      intermediateOperationParams(operation, settings, {
+        mobile,
+        certificate: this.#stickyCertificate,
+      }),
+      {
+        id,
+        appName: appName(settings, env.location?.hostname ?? null),
+        desKey,
+        cipher: config.algo ? encodeCipherConfig(config) : null,
+        storage: servlets.storage,
+        progressDialog: settings.progressDialog,
+        mobile,
+      },
+    );
+    let url = intermediateUrl(name, params, settings, intent);
+    if (url.length > MAX_URL_LENGTH) {
+      dialogs?.showLoading();
+      const fileId = newSessionId(env.crypto);
+      const xmlParams: Param[] = settings.minimumClientVersion
+        ? [...params, { key: "mcv", value: settings.minimumClientVersion }]
+        : params;
+      const xml = encodeUtf8(intermediateXml(name, xmlParams));
+      const payload =
+        this.#advancedCipher && subtle && config.algo
+          ? toBase64UrlSafe(await aesCipher(subtle, config, xml))
+          : desCipher(xml, desKey);
+      await this.#upload(servlets.storage, fileId, payload, context);
+      url = intermediateUrl(
+        name,
+        [
+          { key: "fileid", value: fileId },
+          { key: "rid", value: id },
+          { key: "rtservlet", value: servlets.retriever },
+          { key: "stservlet", value: servlets.storage },
+          { key: "key", value: desKey },
+          { key: "cipher", value: config.algo ? encodeCipherConfig(config) : null },
+        ],
+        settings,
+        intent,
+      );
+      if (url.length > MAX_URL_LENGTH)
+        throw AutoFirmaError.from(EXCEPTION.ILLEGAL_ARGUMENT, ERRORS.TOO_LONG_URL);
+    }
+
+    dialogs?.showLoading();
     try {
-      if (context.resetSticky || !context.config.sticky) this.#certificate = null;
-      let effective = request;
-      if (!mobile && context.config.sticky && this.#certificate && "properties" in request) {
-        effective = {
-          ...request,
-          properties: `${serializeProperties(request.properties)}\nfilters=encodedcert:${this.#certificate}\nheadless=true`,
-        };
-      }
-      const operation = operationParameters(effective, context, "intermediate");
-      cipher = await (this.#options.createCipher?.() ??
-        createWireCipher(this.#options.legacyCipher, this.#options.forceLegacyCipher));
-      context.signal.throwIfAborted();
-      const id = randomSession();
-      const parameters: Parameter[] = [
-        ...operation,
-        ["ver", "4"],
-        ["op", request.operation],
-        ["id", id],
-        ["stservlet", this.#options.storageUrl],
-        ...cipher.parameters,
-      ];
-      if (!parameters.some(([key]) => key === "appname") && context.config.appName)
-        parameters.push(["appname", context.config.appName]);
-      if (!mobile) parameters.push(["aw", "true"]);
-      if (!context.config.progressDialog) parameters.push(["dlgload", "false"]);
-      let url = buildOperationUrl(
-        request.operation,
-        [["jvc", "4"], ...parameters],
-        context.config.minimumVersion,
-        "intermediate",
-      );
-      if (url.length > (this.#options.maxUrlLength ?? 2000)) {
-        const fileId = randomSession();
-        const xmlParameters: Parameter[] = context.config.minimumVersion
-          ? [...parameters, ["mcv", context.config.minimumVersion]]
-          : parameters;
-        const encrypted = await cipher.encrypt(
-          encodeUtf8(buildXml(request.operation, xmlParameters)),
-          this.#advancedSupported,
-        );
-        await this.#post(
-          this.#options.storageUrl,
-          new URLSearchParams({ op: "put", v: "1_0", id: fileId, dat: encrypted }).toString(),
-          context,
-          "AS300302",
-        );
-        url = buildOperationUrl(
-          request.operation,
-          [
-            ["jvc", "4"],
-            ["fileid", fileId],
-            ["rid", id],
-            ["rtservlet", this.#options.retrieveUrl],
-            ["stservlet", this.#options.storageUrl],
-            ...cipher.parameters,
-          ],
-          context.config.minimumVersion,
-          "intermediate",
-        );
-        if (url.length > (this.#options.maxUrlLength ?? 2000))
-          throw new AutoFirmaError("protocol", "Launch URI exceeds configured limit.");
-      }
-      context.signal.throwIfAborted();
-      (this.#options.launch ?? launchNative)(
-        this.#options.androidIntent
-          ? url.replace("afirma://", "intent://") +
-              "#Intent;scheme=afirma;package=es.gob.afirma;end"
-          : url,
-      );
-      let iteration = 0;
-      while (iteration < (this.#options.maxPolls ?? (mobile ? 15 : 10))) {
-        await delay(this.#options.pollDelayMs ?? (mobile ? 4000 : 3000), context.signal);
-        const response = (
-          await this.#post(
-            this.#options.retrieveUrl,
-            new URLSearchParams({ op: "get", v: "1_0", id, it: String(++iteration) }).toString(),
-            context,
-            "AS620025",
-          )
-        ).trimEnd();
-        if (response.startsWith("err-06")) continue;
-        if (response === "#wait") {
-          iteration = 0;
-          continue;
-        }
-        checkNativeError(response);
-        if (response === "OK" || response === "SAVE_OK") return response;
-        const fields = response.split("|");
-        if (fields.length > 3 || fields.some((field) => !field))
-          throw new AutoFirmaError("protocol", "Invalid intermediate response fields.");
-        const decoded = await cipher.decryptFields(fields);
-        context.signal.throwIfAborted();
-        this.#advancedSupported ||= decoded.advanced;
-        if (context.config.sticky)
-          this.#certificate =
-            request.operation === "selectcert"
-              ? (decoded.fields[0] ?? null)
-              : request.operation === "batch"
-                ? (decoded.fields[1] ?? null)
-                : decoded.fields.length > 1
-                  ? (decoded.fields[0] ?? null)
-                  : this.#certificate;
-        return decoded.fields.join("|");
-      }
-      throw new AutoFirmaError("timeout", "Intermediate polling exhausted.", "AS620024");
-    } finally {
-      cipher?.dispose();
-      this.#busy = false;
-      this.#active = null;
+      env.launch(url);
+    } catch (cause) {
+      throw AutoFirmaError.from(EXCEPTION.APP_NOT_FOUND, ERRORS.WEBSERVER_INVOICE_APP, {
+        cause,
+        dialog: "connecting-afirma",
+      });
     }
-  }
-
-  async #post(
-    url: string,
-    body: string,
-    context: OperationContext,
-    networkErrorCode: string,
-  ): Promise<string> {
-    try {
-      return await postText(
-        url,
-        body,
-        context.signal,
-        context.config.maxResponseLength,
-        this.#options.fetch,
-      );
-    } catch (error) {
-      const failure = normalizeError(error);
-      if (failure.kind === "network")
-        throw new AutoFirmaError(
-          "network",
-          failure.message,
-          networkErrorCode,
-          failure.nativeType,
-          failure,
-        );
-      throw failure;
-    }
+    const response = await this.#poll(servlets.retriever, id, mobile, context);
+    return this.#interpret(operation, response, config, context);
   }
 
   dispose(): void {
     this.#disposed = true;
-    this.#active?.abort(new AutoFirmaError("disposed", "Transport is disposed."));
-    this.#certificate = null;
+    this.#stickyCertificate = null;
+  }
+
+  async #upload(
+    storage: string,
+    fileId: string,
+    payload: string,
+    context: OperationContext,
+  ): Promise<void> {
+    let response: Response;
+    try {
+      response = await context.env.fetch(storage, {
+        method: "POST",
+        headers: FORM,
+        body: `op=put&v=1_0&id=${fileId}&dat=${payload}`,
+        cache: "no-store",
+        signal: context.signal,
+      });
+    } catch (cause) {
+      context.signal.throwIfAborted();
+      throw AutoFirmaError.from(EXCEPTION.IO, ERRORS.UPLOADING_TO_SERVER, { cause });
+    }
+    if (!response.ok)
+      throw AutoFirmaError.from(EXCEPTION.IO, ERRORS.UPLOADING_TO_APP, {
+        dialog: "connecting-service",
+      });
+  }
+
+  /**
+   * Consulta el RetrieveService hasta obtener una respuesta. `err-06` (aun no hay resultado) y
+   * los fallos de red se reintentan; `#wait` indica que Autofirma esta trabajando y reinicia la
+   * cuenta de intentos.
+   */
+  async #poll(
+    retriever: string,
+    id: string,
+    mobile: boolean,
+    context: OperationContext,
+  ): Promise<string> {
+    const { env, signal, dialogs, services } = context;
+    const maxIterations = mobile ? 15 : 10;
+    const wait = mobile ? 4000 : 3000;
+    let iterations = 0;
+    let connected = false;
+    for (;;) {
+      await sleep(env, wait, signal);
+      if (iterations > maxIterations) {
+        dialogs?.close();
+        throw AutoFirmaError.from(EXCEPTION.TIMEOUT, ERRORS.WEBSERVER_INVOICE_APP_TIMEOUT, {
+          dialog: connected || !services.compatible ? "connecting-service" : "connecting-afirma",
+        });
+      }
+      const it = iterations;
+      iterations += 1;
+      let response: Response;
+      try {
+        response = await env.fetch(retriever, {
+          method: "POST",
+          headers: FORM,
+          body: `op=get&v=1_0&id=${id}&it=${it}`,
+          cache: "no-store",
+          signal,
+        });
+      } catch {
+        // En iOS la primera consulta tras abrir Autofirma puede fallar: se sigue intentando.
+        signal.throwIfAborted();
+        continue;
+      }
+      if (!response.ok) {
+        dialogs?.close();
+        throw new AutoFirmaError(
+          EXCEPTION.IO,
+          `${ERRORS.WEBSERVER_ERROR_CONNECTING_SERVICE.message} (Status: ${response.status})`,
+          ERRORS.WEBSERVER_ERROR_CONNECTING_SERVICE.code,
+          { dialog: "connecting-service" },
+        );
+      }
+      const text = await response.text();
+      if (text.slice(0, 6).toLowerCase() === "err-06") continue;
+      dialogs?.close();
+      if (text.slice(0, 5).toLowerCase() === "#wait") {
+        iterations = 0;
+        connected = true;
+        continue;
+      }
+      return text;
+    }
+  }
+
+  async #interpret(
+    operation: WireOperation,
+    response: string,
+    config: CipherConfig,
+    context: OperationContext,
+  ): Promise<NativeResult> {
+    const text = response.replace(/\r?\n$/, "");
+    throwIfNativeError(text, WEBSOCKET_CODES);
+    if (text === "OK" || text === "SAVE_OK") return { type: "saved", status: text };
+    const fields = text.split("|");
+    const subtle = context.env.crypto.subtle as SubtleCrypto | undefined;
+    let plain: string[];
+    if (subtle && config.algo && !isDesField(fields[0] ?? "")) {
+      plain = await aesDecipherFields(subtle, config, fields);
+      this.#advancedCipher = true;
+    } else {
+      plain = desDecipherFields(fields, config.legDes);
+    }
+    const result = parseIntermediateFields(operation, plain);
+    if (!context.settings.stickySignatory) this.#stickyCertificate = null;
+    else if (result.type === "certificate") this.#stickyCertificate = result.certificate;
+    else if ((result.type === "signature" || result.type === "batch") && result.certificate)
+      this.#stickyCertificate = result.certificate;
+    return result;
   }
 }

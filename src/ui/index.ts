@@ -1,19 +1,17 @@
-export { createSupportDialog } from "./dialog.js";
-export type { DialogOptions, SupportController, SupportDialog } from "./dialog.js";
-export { DIALOG_CSS, installDialogStyles } from "./styles.js";
+// Dialogos de soporte con el aspecto del autoscript.js original.
+
 export {
-  dialogMessages,
-  isDialogLocale,
-  LOCALE_CODES,
-  localizedHelp,
-  resolveDialogLocale,
-} from "./locales.js";
-export type {
-  DialogAction,
-  DialogHelp,
-  DialogHelpKind,
-  DialogLink,
-  DialogLocale,
-  DialogMessages,
-  DevicePlatform,
-} from "./locales.js";
+  SupportDialog,
+  type SupportDialogApi,
+  type SupportDialogClasses,
+  type SupportDialogOptions,
+} from "./dialog.js";
+export {
+  DEFAULT_LOCALE,
+  localeMessages,
+  LOCALES,
+  type DialogMessages,
+  type LocaleCode,
+} from "./messages.js";
+export { sanitizeHtml } from "./sanitize.js";
+export { installSupportDialogStyles, STYLE_ELEMENT_ID, SUPPORT_DIALOG_CSS } from "./styles.js";

@@ -9,7 +9,13 @@
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/consistent-type-imports": "error",
-    "eslint/eqeqeq": "error"
+    "eslint/eqeqeq": "error",
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["__AUTOSCRIPT_VERSION__"]
+      }
+    ]
   },
   "env": {
     "browser": true,
@@ -17,9 +23,17 @@
   },
   "overrides": [
     {
-      "files": ["src/transports/*.ts", "src/browser/network.ts", "tests/client.test.ts"],
-      "rules": { "eslint/no-await-in-loop": "off" }
+      "files": [
+        "src/transports/*.ts",
+        "src/core/client.ts",
+        "tests/**/*.ts",
+        "scripts/**/*.mjs",
+        "bench/**/*.ts"
+      ],
+      "rules": {
+        "eslint/no-await-in-loop": "off"
+      }
     }
   ],
-  "ignorePatterns": ["Estudio/**", "dist/**", "coverage/**", "node_modules/**"]
+  "ignorePatterns": ["Estudio/**", "dist/**", "coverage/**", "node_modules/**", "demo/**"]
 }

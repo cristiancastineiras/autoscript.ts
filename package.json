@@ -1,159 +1,68 @@
 {
   "name": "autoscript-ts",
-  "version": "0.0.0",
+  "version": "1.10.1",
   "private": true,
-  "description": "Base modular TypeScript para modernizar Autoscript.js",
-  "license": "UNLICENSED",
+  "description": "AutoScript de Autofirma reescrito en TypeScript: SDK moderno tipado y autoscript.js compatible con el original",
+  "keywords": [
+    "afirma",
+    "autofirma",
+    "autoscript",
+    "cades",
+    "firma electronica",
+    "pades",
+    "typescript",
+    "xades"
+  ],
+  "homepage": "https://github.com/cristiancastineiras/autoscript.ts#readme",
+  "bugs": {
+    "url": "https://github.com/cristiancastineiras/autoscript.ts/issues"
+  },
+  "license": "GPL-2.0-or-later OR EUPL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cristiancastineiras/autoscript.ts.git"
+  },
   "files": [
     "dist",
-    "src"
+    "!dist/**/*.map",
+    "LICENSES"
   ],
   "type": "module",
-  "sideEffects": false,
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "sideEffects": [
+    "./dist/autoscript.js",
+    "./dist/autoscript.min.js"
+  ],
   "types": "./dist/index.d.ts",
-  "typesVersions": {
-    "*": {
-      "core": [
-        "./dist/core.d.ts"
-      ],
-      "encoding": [
-        "./dist/encoding.d.ts"
-      ],
-      "browser": [
-        "./dist/browser.d.ts"
-      ],
-      "websocket": [
-        "./dist/websocket.d.ts"
-      ],
-      "https": [
-        "./dist/https.d.ts"
-      ],
-      "intermediate": [
-        "./dist/intermediate.d.ts"
-      ],
-      "compat": [
-        "./dist/compat.d.ts"
-      ],
-      "compat/des": [
-        "./dist/compat-des.d.ts"
-      ],
-      "ui": [
-        "./dist/ui.d.ts"
-      ]
-    }
-  },
+  "unpkg": "./dist/autoscript.min.js",
+  "jsdelivr": "./dist/autoscript.min.js",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
-    },
-    "./core": {
-      "import": {
-        "types": "./dist/core.d.ts",
-        "default": "./dist/core.js"
-      },
-      "require": {
-        "types": "./dist/core.d.cts",
-        "default": "./dist/core.cjs"
-      }
-    },
-    "./encoding": {
-      "import": {
-        "types": "./dist/encoding.d.ts",
-        "default": "./dist/encoding.js"
-      },
-      "require": {
-        "types": "./dist/encoding.d.cts",
-        "default": "./dist/encoding.cjs"
-      }
-    },
-    "./browser": {
-      "import": {
-        "types": "./dist/browser.d.ts",
-        "default": "./dist/browser.js"
-      },
-      "require": {
-        "types": "./dist/browser.d.cts",
-        "default": "./dist/browser.cjs"
-      }
-    },
-    "./websocket": {
-      "import": {
-        "types": "./dist/websocket.d.ts",
-        "default": "./dist/websocket.js"
-      },
-      "require": {
-        "types": "./dist/websocket.d.cts",
-        "default": "./dist/websocket.cjs"
-      }
-    },
-    "./https": {
-      "import": {
-        "types": "./dist/https.d.ts",
-        "default": "./dist/https.js"
-      },
-      "require": {
-        "types": "./dist/https.d.cts",
-        "default": "./dist/https.cjs"
-      }
-    },
-    "./intermediate": {
-      "import": {
-        "types": "./dist/intermediate.d.ts",
-        "default": "./dist/intermediate.js"
-      },
-      "require": {
-        "types": "./dist/intermediate.d.cts",
-        "default": "./dist/intermediate.cjs"
-      }
-    },
-    "./compat": {
-      "import": {
-        "types": "./dist/compat.d.ts",
-        "default": "./dist/compat.js"
-      },
-      "require": {
-        "types": "./dist/compat.d.cts",
-        "default": "./dist/compat.cjs"
-      }
-    },
-    "./compat/des": {
-      "import": {
-        "types": "./dist/compat-des.d.ts",
-        "default": "./dist/compat-des.js"
-      },
-      "require": {
-        "types": "./dist/compat-des.d.cts",
-        "default": "./dist/compat-des.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./ui": {
-      "import": {
-        "types": "./dist/ui.d.ts",
-        "default": "./dist/ui.js"
-      },
-      "require": {
-        "types": "./dist/ui.d.cts",
-        "default": "./dist/ui.cjs"
-      }
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
+    "./compat": {
+      "types": "./dist/compat.d.ts",
+      "default": "./dist/compat.js"
+    },
+    "./autoscript.js": {
+      "types": "./dist/autoscript.d.ts",
+      "default": "./dist/autoscript.js"
+    },
+    "./autoscript.min.js": {
+      "types": "./dist/autoscript.d.ts",
+      "default": "./dist/autoscript.min.js"
     },
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsdown",
-    "demo": "npm run build && npm run demo:serve",
-    "demo:serve": "node scripts/demo.mjs",
     "dev": "tsdown --watch",
+    "demo": "tsdown && node scripts/demo.mjs",
     "typecheck": "tsc --noEmit",
-    "typecheck:watch": "tsc --noEmit --watch",
     "lint": "oxlint --deny-warnings src tests bench scripts tsdown.config.ts vitest.config.ts",
     "lint:fix": "oxlint --fix src tests bench scripts tsdown.config.ts vitest.config.ts",
     "format": "oxfmt --write .",
@@ -161,33 +70,37 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:package": "node --test tests/package.test.mjs",
-    "check:package": "publint",
-    "check:types": "attw --pack",
-    "check": "node scripts/check.mjs",
+    "test:package": "node --test tests/package/*.test.mjs",
+    "check:package": "publint --strict --pack npm",
+    "check:types": "attw --pack --profile esm-only",
+    "size": "node scripts/size.mjs && node scripts/treeshake.mjs",
     "bench": "vitest bench --run",
-    "prepack": "pnpm build",
-    "prepublishOnly": "pnpm check"
-  },
-  "dependencies": {
-    "des.js": "1.1.0",
-    "dompurify": "3.4.17"
+    "check": "node scripts/check.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "prepack": "tsdown",
+    "release:tag": "changeset tag",
+    "site": "node scripts/site.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@types/node": "22.20.5",
+    "@changesets/cli": "3.0.3",
+    "@types/jsdom": "30.0.0",
+    "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.0.4",
-    "jsdom": "26.1.0",
-    "oxfmt": "0.72.0",
-    "oxlint": "1.87.0",
+    "jsdom": "30.1.2",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
     "publint": "0.3.25",
-    "rolldown": "1.2.13",
     "tsdown": "0.23.1",
     "typescript": "7.0.2",
     "vitest": "5.0.4"
   },
   "engines": {
-    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
-  "packageManager": "pnpm@12.11.2"
+  "volta": {
+    "node": "24.21.0"
+  },
+  "packageManager": "pnpm@12.13.0"
 }

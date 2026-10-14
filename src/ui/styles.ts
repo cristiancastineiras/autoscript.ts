@@ -1,18 +1,21 @@
-export const DIALOG_CSS: string = `
-.autoscript-dialog { color: #202722; background: #fff; border: 1px solid #728479; border-radius: 6px; padding: 24px; width: min(400px, calc(100vw - 64px)); max-height: calc(100vh - 64px); box-sizing: border-box; overflow: auto; font: 16px/1.5 "Source Sans 3", sans-serif; letter-spacing: 0; }
-.autoscript-dialog::backdrop { background: rgb(0 0 0 / 40%); }
-.autoscript-dialog h2 { font-size: 22px; margin: 0 0 16px; }
-.autoscript-dialog p { margin: 0 0 16px; overflow-wrap: anywhere; }
-.autoscript-dialog progress { display: block; width: 100%; height: 8px; margin-bottom: 24px; accent-color: #28764b; }
-.autoscript-dialog button { min-height: 44px; padding: 8px 16px; border: 1px solid #576d60; border-radius: 4px; color: #fff; background: #225e3e; font: inherit; cursor: pointer; }
-.autoscript-dialog button:focus-visible { outline: 3px solid #deab26; outline-offset: 3px; }
-.autoscript-dialog a { color: #165b90; overflow-wrap: anywhere; }
-`;
+/**
+ * Estilos por defecto del dialogo de soporte, los mismos del autoscript.js original (incluido el
+ * logo de Autofirma). Solo se renombra la animacion para no chocar con estilos de la pagina.
+ */
+export const SUPPORT_DIALOG_CSS: string = `.afirma-modal-backdrop{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);z-index:9990;display:flex;align-items:center;justify-content:center;box-sizing:border-box}.afirma-modal-container{background-color:#ffffff;border-radius:8px;padding:20px;box-shadow:0 0px 15px 2px rgb(0 0 0 / 50%);width:90%;max-width:500px;max-height:90vh;overflow-y:auto;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center}@media (min-width:600px){.afirma-modal-container{width:500px}.afirma-modal-button-container{display:flex;flex-direction:row !important;justify-content:flex-end}.afirma-modal-button-container button{margin:0 0.5rem 0 0}}.afirma-modal-message-panel{display:flex;flex-direction:column;align-items:center}.afirma-modal-logo{width:15%;min-width:64px;height:64px;background-image:url(data:image/png;base64,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);background-repeat:no-repeat;background-position:center;background-size:contain;margin-bottom:1rem}.afirma-modal-close-button{background-color:#878787;color:#fff;flex:1;margin-top:0.4rem;padding:0.5rem 1rem;border:none;border-radius:4px;font-family:Helvetica,Arial,sans-serif;font-size:16px;cursor:pointer;box-sizing:border-box}.afirma-modal-action-button{background-color:#c33400;color:#fff;flex:1;margin-top:0.4rem;padding:0.5rem 1rem;border:none;border-radius:4px;font-family:Helvetica,Arial,sans-serif;font-size:16px;cursor:pointer;box-sizing:border-box}.afirma-modal-loading-message,.afirma-modal-error-message{margin-top:10px;font-family:Helvetica,Arial,sans-serif;font-size:16px;color:#333}.afirma-modal-loading-message a,.afirma-modal-error-message a{color:#c33400;line-height:1.5rem}.afirma-modal-loading-message a img,.afirma-modal-error-message a img{margin-top:1rem;width:140px;max-width:140px}.afirma-modal-button-container{display:flex;flex-direction:column;justify-content:flex-end;width:100%;margin-top:20px;box-sizing:border-box}.afirma-modal-button-container button:last-child{margin-right:0}.afirma-modal-spinner{border:4px solid rgba(0,0,0,0.1);border-top-color:#c33400;width:24px;height:24px;border-radius:50%;animation:afirma-modal-spin 1s linear infinite;margin-top:10px}@keyframes afirma-modal-spin{to{transform:rotate(360deg)}}`;
 
-export function installDialogStyles(doc: Document, nonce?: string): () => void {
-  const style = doc.createElement("style");
+/** Identificador del elemento `<style>` que se inserta una unica vez. */
+export const STYLE_ELEMENT_ID = "afirmaSupportDialogStyles";
+
+/**
+ * Inserta los estilos del dialogo si aun no estan en el documento. Admite el `nonce` de una
+ * politica CSP con `style-src` restringido.
+ */
+export function installSupportDialogStyles(document: Document, nonce?: string): void {
+  if (document.getElementById(STYLE_ELEMENT_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ELEMENT_ID;
   if (nonce) style.nonce = nonce;
-  style.textContent = DIALOG_CSS;
-  doc.head.append(style);
-  return () => style.remove();
+  style.textContent = SUPPORT_DIALOG_CSS;
+  (document.head ?? document.documentElement).append(style);
 }

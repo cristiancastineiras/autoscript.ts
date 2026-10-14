@@ -1,9 +1,11 @@
 node_modules/
 dist/
+site/
 coverage/
 .cache/
 .vitest/
 .pnpm-store/
+.treeshake-*/
 *.tsbuildinfo
 *.tgz
 *.log

@@ -1,13 +1,18 @@
-export { createLegacyAutoScript, disposeLegacyAutoScript } from "./facade.js";
-export { installGlobals } from "./globals.js";
-export type { InstallGlobalsOptions, InstalledGlobals } from "./globals.js";
+// Compatibilidad con la interfaz global del autoscript.js original (callbacks y nombres).
+
+export {
+  createAutoScript,
+  createLegacyBase64,
+  installAutoScript,
+  LEGACY_GLOBAL_NAMES,
+  type AutoScriptOptions,
+  type LegacyHostWindow,
+} from "./autoscript.js";
 export type {
   LegacyAutoScript,
-  LegacyOptions,
-  LegacySupport,
-  LegacyErrorCallback,
-  LegacySignCallback,
+  LegacyBase64,
   LegacyBatchCallback,
-  LegacyFileCallback,
-  LegacyMultiFileCallback,
+  LegacyErrorCallback,
+  LegacyGlobals,
+  LegacySignCallback,
 } from "./types.js";
