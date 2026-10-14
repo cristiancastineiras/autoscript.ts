@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <title>Pruebas de AutoScript (Cliente @firma)</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="text/javascript" src="js/autoscript.js"></script>
+  </head>
+  <body>
+    <h1>Pruebas de AutoScript <span id="version"></span></h1>
+    <p>
+      P&aacute;ginas de prueba del repositorio oficial de Autofirma, ejecutadas con
+      <code>autoscript.js</code> generado desde TypeScript. Requieren Autofirma instalado.
+    </p>
+    <p>
+      IMPORTANTE: acceda siempre mediante una IP o un nombre de dominio, nunca
+      <code>localhost</code> ni <code>127.0.0.1</code>; si no, Autofirma bloquear&aacute; la firma.
+    </p>
+    <fieldset><legend>Interfaz cl&aacute;sica (autoscript.js)</legend>
+      <ul>
+        <li><a href="clienteafirma-test.html">Firma, cofirma, contrafirma, certificados y ficheros</a></li>
+        <li><a href="clienteafirma-batch-json.html">Firma de lotes JSON (trif&aacute;sica y local)</a></li>
+        <li><a href="clienteafirma-batch-xml.html">Firma de lotes XML (mecanismo heredado)</a></li>
+      </ul>
+    </fieldset>
+    <br/>
+    <fieldset><legend>SDK moderno (m&oacute;dulos ES y promesas)</legend>
+      <ul>
+        <li><a href="sdk.html">Firma con <code>createAutoFirmaClient()</code></a></li>
+      </ul>
+    </fieldset>
+    <script>
+      document.getElementById("version").textContent = AutoScript.VERSION;
+    </script>
+  </body>
+</html>
