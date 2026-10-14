@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "isolatedDeclarations": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts", "*.config.ts"],
+  "exclude": ["dist", "node_modules", "coverage", "Estudio"]
+}

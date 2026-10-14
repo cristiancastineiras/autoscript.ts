@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "error",
+    "eslint/eqeqeq": "error"
+  },
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "overrides": [
+    {
+      "files": ["src/transports/*.ts", "src/browser/network.ts", "tests/client.test.ts"],
+      "rules": { "eslint/no-await-in-loop": "off" }
+    }
+  ],
+  "ignorePatterns": ["Estudio/**", "dist/**", "coverage/**", "node_modules/**"]
+}

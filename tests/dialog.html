@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autofirma: prueba de dialogo</title>
+  </head>
+  <body style="overflow: scroll">
+    <main aria-hidden="false">
+      <h1>Autofirma</h1>
+      <button id="host" type="button">Documento de prueba</button>
+    </main>
+    <script src="../.cache/dialog/dialog.iife.js"></script>
+    <script>
+      const host = document.getElementById("host");
+      host.focus();
+      AutoScriptUI.installDialogStyles(document);
+      const support = AutoScriptUI.createSupportDialog();
+      support.api.setPCDownloadURL('<a href="https://firmaelectronica.gob.es/">Autofirma</a>');
+      support.showLoading();
+      globalThis.dialogFixture = support;
+    </script>
+  </body>
+</html>
